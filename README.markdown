@@ -1,27 +1,27 @@
-#Gendarme MsBuild Task
-This is a simple MsBuild wrapper for [Gendarme](http://www.mono-project.com/Gendarme).
+#Gendarme MSBuild Task
+This is a simple MSBuild wrapper for [Gendarme](http://www.mono-project.com/Gendarme).
 
 ##Prerequisites
 [Download and install Gendarme](http://www.mono-project.com/Gendarme#Download)
 
 ##Usage
 ###MSBuild
-To call from an MsBuild project, the syntax is straightforward:
+To call from an MSBuild project, the syntax is straightforward:
 
     <Project DefaultTargets="Test" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-        <UsingTask AssemblyFile="**Path\To\GendarmeMsBuild.dll**" TaskName="GendarmeMsBuild.Gendarme" />
+        <UsingTask AssemblyFile="Path\To\GendarmeMsBuild.dll" TaskName="GendarmeMsBuild.Gendarme" />
         <Target Name="Test">
             <Gendarme
-                OutputXmlFilename="$(MSBuildProjectDirectory)\\bin\\Debug\\test-output.xml"
-                Assemblies="**Path\To\My\*.dll**"
+                OutputXmlFilename="$(MSBuildProjectDirectory)\bin\Debug\test-output.xml"
+                Assemblies="Path\To\My\*.dll"
                 />
         </Target>
     </Project>
 
 ###Visual Studio
-You can also integrate with Visual Studio, so that Gendarme is run as part of building your project. Simply add the following to the bottom of your .csproj file (just before the </Project> tag):
+You can also integrate with Visual Studio, so that Gendarme is run as part of building your project. Simply add the following to the bottom of your .csproj file (just before the &lt;/Project&gt; tag):
 
-    <UsingTask AssemblyFile="$(SolutionDir)..\GendarmeMsBuild\bin\debug\GendarmeMsBuild.dll" TaskName="GendarmeMsBuild.Gendarme"/>
+    <UsingTask AssemblyFile="Path\To\GendarmeMsBuild.dll" TaskName="GendarmeMsBuild.Gendarme"/>
     <Target Name="AfterBuild">
         <Gendarme Assemblies="$(TargetPath)" IntegrateWithVisualStudio="True"/>
     </Target>
