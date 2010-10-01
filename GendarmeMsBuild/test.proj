@@ -1,0 +1,10 @@
+<Project DefaultTargets="Test" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <UsingTask AssemblyFile="$(MSBuildProjectDirectory)\bin\Debug\GendarmeMsBuild.dll" TaskName="GendarmeMsBuild.Gendarme" />
+    <Target Name="Test">
+        <Gendarme
+            OutputXmlFilename="$(MSBuildProjectDirectory)\bin\Debug\test-output.xml"
+            Assemblies="$(MSBuildProjectDirectory)\bin\Debug\*.dll"
+            IntegrateWithVisualStudio="True"
+            />
+    </Target>
+</Project>
