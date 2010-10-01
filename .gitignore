@@ -1,5 +1,8 @@
 *.user
 *.suo
-_Resharper.*
+*.cache
+_ReSharper.*
 GendarmeMsBuild/bin
 GendarmeMsBuild/obj
+TestVisualStudioIntegration/bin
+TestVisualStudioIntegration/obj
