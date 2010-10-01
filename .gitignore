@@ -1,0 +1,5 @@
+*.user
+*.suo
+_Resharper.*
+GendarmeMsBuild/bin
+GendarmeMsBuild/obj
