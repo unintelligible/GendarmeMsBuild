@@ -5,6 +5,7 @@ This is a simple MSBuild wrapper for [Gendarme](http://www.mono-project.com/Gend
 [Download and install Gendarme](http://www.mono-project.com/Gendarme#Download)
 
 ##Usage
+First, [download the latest binary](http://github.com/unintelligible/GendarmeMsBuild/downloads).
 ###MSBuild
 To call from an MSBuild project, the syntax is straightforward:
 
@@ -25,6 +26,11 @@ You can also integrate with Visual Studio, so that Gendarme is run as part of bu
     <Target Name="AfterBuild">
         <Gendarme Assemblies="$(TargetPath)" IntegrateWithVisualStudio="True"/>
     </Target>
+
+This should give you something like this:
+
+<img title="Visual Studio screenshot" src="http://unintelligible.org/blog/wp-content/uploads/2010/10/gendarmemsbuild-visualstudio.png" width="600" alt="Visual Studio screenshot">
+
 ##Options
 The following properties are supported on the task:
 
