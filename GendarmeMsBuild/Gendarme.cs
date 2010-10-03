@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -14,7 +13,6 @@ namespace GendarmeMsBuild
     public class Gendarme : Task
     {
         private string _gendarmeExeFilename = Path.Combine(Path.Combine(ProgramFilesx86(), "Gendarme"), "gendarme.exe");
-        private bool _defectsCauseFailure = true;
         private static readonly Regex LineRegex = new Regex("\\(≈\\d+\\)");
 
         #region Task Properties
@@ -73,11 +71,18 @@ namespace GendarmeMsBuild
         /// Whether or not to fail the build if defects are found. Defaults to false. Useful when only the 
         /// output XML is required. Ignored when Visual Studio integration is enabled.
         /// </summary>
+        [Obsolete("use WarningsAsErrors instead")]
         public bool DefectsCauseFailure
         {
-            get { return _defectsCauseFailure; }
-            set { _defectsCauseFailure = value; }
+            get { return WarningsAsErrors; }
+            set { WarningsAsErrors = value; }
         }
+
+        /// <summary>
+        /// Whether to consider defects (which are normally treated as warnings) as errors. When set to true, 
+        /// the build will fail if any defects are found. Optional.
+        /// </summary>
+        public bool WarningsAsErrors { get; set; }
 
         /// <summary>
         /// Whether or not to format the output in a format Visual Studio can understand. Defaults to false (optional)
@@ -100,15 +105,25 @@ namespace GendarmeMsBuild
                 thisOutputFile = Path.GetTempFileName();
                 isUsingTempFile = true;
             }
+            else
+            {
+                if(File.Exists(thisOutputFile))
+                    try
+                    {
+                        File.Delete(thisOutputFile);
+                    } catch(Exception e)
+                    {
+                        Log.LogErrorFromException(new Exception("Couldn't recreate output file " + thisOutputFile, e));
+                        return false;
+                    }
+            }
+            MaybeLogMessage("output file: " + thisOutputFile);
 
-            if (!IntegrateWithVisualStudio && (!Quiet.HasValue || !Quiet.Value))
-                Log.LogMessage("output file: " + thisOutputFile);
             try
             {
                 var commandLineArguments = BuildCommandLineArguments(thisOutputFile);
 
-                if (!IntegrateWithVisualStudio && (!Quiet.HasValue || !Quiet.Value))
-                    Log.LogMessage("GendarmeMsBuild - command line arguments to Gendarme: " + commandLineArguments);
+                MaybeLogMessage("GendarmeMsBuild - command line arguments to Gendarme: " + commandLineArguments);
                 var processInfo = new ProcessStartInfo(_gendarmeExeFilename, commandLineArguments) { CreateNoWindow = true, UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true };
                 var sw = new Stopwatch();
                 sw.Start();
@@ -118,31 +133,25 @@ namespace GendarmeMsBuild
                 proc.WaitForExit();
                 var exitCode = proc.ExitCode;
                 sw.Stop();
-                if (!IntegrateWithVisualStudio && (!Quiet.HasValue || !Quiet.Value))
-                    Log.LogMessage("GendarmeMsBuild - finished running Gendarme in " + sw.ElapsedMilliseconds + "ms");
+                MaybeLogMessage("GendarmeMsBuild - finished running Gendarme in " + sw.ElapsedMilliseconds + "ms");
                 if (exitCode != 0)
                 {
                     if (stdErr.Length > 0)
+                    {
+                        // problem with the call out to Gendarme
                         Log.LogError(stdErr);
+                        return false;
+                    }
                     else
                     {
-                        if (IntegrateWithVisualStudio)
-                        {
-                            CreateVisualStudioOutput(thisOutputFile);
-                        }
-                        else
-                        {
-                            if (!string.IsNullOrEmpty(stdOut))
-                                Log.LogMessage(stdOut);
-                            if (DefectsCauseFailure)
-                                Log.LogError(GetDefectSummary(thisOutputFile));
-                            else
-                                Log.LogMessage(GetDefectSummary(thisOutputFile));
-                        }
+                        if (!IntegrateWithVisualStudio && !string.IsNullOrEmpty(stdOut))
+                            Log.LogMessage(stdOut);
+
+                        CreateVisualStudioOutput(thisOutputFile);
+                        return !WarningsAsErrors;
                     }
-                    return !DefectsCauseFailure;
                 }
-                if (!string.IsNullOrEmpty(stdOut))
+                if (!IntegrateWithVisualStudio && !string.IsNullOrEmpty(stdOut))
                     Log.LogMessage(stdOut);
                 return true;
             }
@@ -200,16 +209,7 @@ namespace GendarmeMsBuild
             return true;
         }
 
-        class GendarmeOutput
-        {
-            public string RuleName;
-            public string Problem;
-            public string Solution;
-            public int ViolationCount;
-            public IEnumerable<string> ViolationTargets;
-        }
-
-        class GendarmeVisualStudioOutput
+        class GendarmeDefect
         {
             public string RuleName;
             public string Problem;
@@ -218,39 +218,12 @@ namespace GendarmeMsBuild
             public string Target;
         }
 
-        private static string GetDefectSummary(string outputFile)
-        {
-            var xdoc = XDocument.Load(outputFile);
-            var q = from ruleN in xdoc.Root.Elements("results").First().Elements("rule")
-                    select new GendarmeOutput
-                    {
-                        RuleName = ruleN.Attribute("Uri").Value.Substring(ruleN.Attribute("Uri").Value.LastIndexOf('/') + 1).Replace('#', '.'),
-                        Problem = ruleN.Elements("problem").First().Value,
-                        Solution = ruleN.Elements("solution").First().Value,
-                        ViolationCount = ruleN.Descendants("defect").Count(),
-                        ViolationTargets = ruleN.Descendants("defect").Select(t => t.Attribute("Location").Value)
-                    };
-            var sb = new StringBuilder();
-            sb.Append("Found ").Append(q.Aggregate(0, (acc, go) => acc + go.ViolationCount)).AppendLine(" Gendarme violations");
-            sb.AppendLine();
-            foreach (var n in q)
-            {
-                sb.Append("Rule: ").AppendLine(n.RuleName);
-                sb.Append("Problem: ").AppendLine(n.Problem);
-                sb.Append("Solution: ").AppendLine(n.Solution);
-                sb.AppendLine("Error locations: ");
-                foreach (var t in n.ViolationTargets)
-                    sb.Append("  * ").AppendLine(t);
-            }
-            return sb.ToString();
-        }
-
         private void CreateVisualStudioOutput(string outputFile)
         {
             var xdoc = XDocument.Load(outputFile);
             var q = from defect in xdoc.Root.Descendants("defect")
                     let rule = defect.Parent.Parent
-                    select new GendarmeVisualStudioOutput
+                    select new GendarmeDefect
                        {
                            RuleName = rule.Attribute("Uri").Value.Substring(rule.Attribute("Uri").Value.LastIndexOf('/') + 1).Replace('#', '.'),
                            Problem = rule.Element("problem").Value,
@@ -258,25 +231,47 @@ namespace GendarmeMsBuild
                            Source = LineRegex.IsMatch(defect.Attribute("Source").Value) ? defect.Attribute("Source").Value : null,
                            Target = rule.Element("target").Attribute("Name").Value
                        };
-            Console.WriteLine("Found defects: " + q.Count());
             foreach (var defect in q)
             {
                 if (defect.Source != null)
                 {
                     var match = LineRegex.Match(defect.Source);
-                    Console.WriteLine("Found match " + match.Value);
-                    Console.WriteLine("Found match " + match.Value.Substring(2, match.Value.Length - 3));
                     var lineNumber = int.Parse(match.Value.Substring(2, match.Value.Length - 3));
                     var sourceFile = defect.Source.Substring(0, defect.Source.IndexOf(match.Value));
-                    Console.WriteLine("Found line " + lineNumber + " in file " + sourceFile + " for string " + defect.Source);
-                    Log.LogError(defect.RuleName, "[gendarme]", null, sourceFile, lineNumber, 1, 0, 0, defect.RuleName + ": " + defect.Problem);
+                    LogDefect("[gendarme]", defect.RuleName, null, sourceFile, lineNumber, 1, 0, 0, defect.RuleName + ": " + defect.Problem);
                 }
                 else
                 {
-                    Console.WriteLine("No source found");
-                    Log.LogError(defect.RuleName, "[gendarme]", null, null, 0, 0, 0, 0, defect.RuleName + ": " + defect.Target + ": " + defect.Problem);
+                    LogDefect("[gendarme]", defect.RuleName, null, null, 0, 0, 0, 0, defect.RuleName + ": " + defect.Target + ": " + defect.Problem);
                 }
             }
+        }
+
+        /// <summary>
+        /// Log a message to MSBuild if Visual Studio integration isn't enabled, and the Quiet option isn't set.
+        /// </summary>
+        /// <param name="message"></param>
+        private void MaybeLogMessage(string message)
+        {
+            if (!IntegrateWithVisualStudio && (!Quiet.HasValue || !Quiet.Value))
+                Log.LogMessage(message);
+        }
+
+        private void LogDefect(string subcategory, string errorCode, string helpKeyword, string file, int lineNumber,
+                             int columnNumber, int endLineNumber, int endColumnNumber, string message, params string[] messageArgs)
+        {
+            if (WarningsAsErrors)
+                Log.LogError(subcategory, errorCode, helpKeyword, file, lineNumber, columnNumber, endLineNumber, endColumnNumber, message, messageArgs);
+            else
+                Log.LogWarning(subcategory, errorCode, helpKeyword, file, lineNumber, columnNumber, endLineNumber, endColumnNumber, message, messageArgs);
+        }
+
+        private void LogDefect(string message)
+        {
+            if (WarningsAsErrors)
+                Log.LogError(message);
+            else
+                Log.LogWarning(message);
         }
 
         static string ProgramFilesx86()
