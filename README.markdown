@@ -90,7 +90,7 @@ The following properties are supported on the task:
 </table>
 
 ##License
-The code is released under the MIT license - see the LICENSE file for the full license text.
+The code is released under the MIT X11 license - see the LICENSE file for the full license text.
 
 ##Thanks
 The [Gendarme team](http://github.com/mono/mono-tools/blob/master/gendarme/AUTHORS) for building such a useful and flexible tool.
