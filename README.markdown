@@ -89,6 +89,9 @@ The following properties are supported on the task:
 </tr>
 </table>
 
+##License
+The code is released under the MIT license - see the LICENSE file for the full license text.
+
 ##Thanks
 The [Gendarme team](http://github.com/mono/mono-tools/blob/master/gendarme/AUTHORS) for building such a useful and flexible tool.
 [Lex Li](http://www.lextm.com/) for useful feedback.
