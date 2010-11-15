@@ -51,10 +51,16 @@ namespace GendarmeMsBuild
         /// The confidence level defects are filtered by. Maps to --confidence [all | low[+] | normal[+|-] | high[+|-] | total[-]] (optional)
         /// </summary>
         public string Confidence { get; set; }
+
+        private int? limit = null;
         /// <summary>
         /// Limit the amount of defects found. Maps to --limit [value] (optional)
         /// </summary>
-        public int? Limit { get; set; }
+        public int Limit 
+        {
+                get { return limit.HasValue ? limit.Value : -1; }
+                set { limit = value >= 0 ? new int?(value) : null; }
+        }
         /// <summary>
         /// The path to save Gendarme's output XML (optional)
         /// </summary>
@@ -62,11 +68,11 @@ namespace GendarmeMsBuild
         /// <summary>
         /// Output minimal info. Maps to --quiet. Also causes the MSBuild task to output no info (optional). Ignored when Visual Studio integration is enabled.
         /// </summary>
-        public bool? Quiet { get; set; }
+        public bool Quiet { get; set; }
         /// <summary>
         /// Output verbose info. Maps to --verbose (optional). Ignored when Visual Studio integration is enabled.
         /// </summary>
-        public bool? Verbose { get; set; }
+        public bool Verbose { get; set; }
         /// <summary>
         /// Whether or not to fail the build if defects are found. Defaults to false. Useful when only the 
         /// output XML is required. Ignored when Visual Studio integration is enabled.
@@ -177,11 +183,11 @@ namespace GendarmeMsBuild
                 sb.Append(" --confidence ").Append('"').Append(Confidence).Append('"');
             if (GendarmeIgnoreFilename != null)
                 sb.Append(" --ignore \"").Append(GendarmeIgnoreFilename).Append('"');
-            if (Limit.HasValue)
-                sb.Append(" --limit ").Append(Limit.Value.ToString());
-            if (Quiet.HasValue && Quiet.Value)
+            if (limit.HasValue)
+                sb.Append(" --limit ").Append(limit.Value.ToString());
+            if (Quiet)
                 sb.Append(" --quiet");
-            else if (Verbose.HasValue && Verbose.Value)
+            if (Verbose)
                 sb.Append(" --verbose");
             sb.Append(" --xml \"").Append(thisOutputFile).Append('"');
             foreach (var assembly in Assemblies)
@@ -253,7 +259,7 @@ namespace GendarmeMsBuild
         /// <param name="message"></param>
         private void MaybeLogMessage(string message)
         {
-            if (!IntegrateWithVisualStudio && (!Quiet.HasValue || !Quiet.Value))
+            if (!IntegrateWithVisualStudio && !Quiet)
                 Log.LogMessage(message);
         }
 
