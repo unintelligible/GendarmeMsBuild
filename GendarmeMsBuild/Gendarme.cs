@@ -94,6 +94,11 @@ namespace GendarmeMsBuild
         /// Whether or not to format the output in a format Visual Studio can understand. Defaults to false (optional)
         /// </summary>
         public bool IntegrateWithVisualStudio { get; set; }
+
+        /// <summary>
+        /// Whether to display gendarme defects in msbuild output.
+        /// </summary>
+        public bool Silent { get; set; }
         #endregion
 
         /// <summary>
@@ -153,7 +158,8 @@ namespace GendarmeMsBuild
                         if (!IntegrateWithVisualStudio && !string.IsNullOrEmpty(stdOut))
                             Log.LogMessage(stdOut);
 
-                        CreateVisualStudioOutput(thisOutputFile);
+                        if (!Silent)
+                            CreateVisualStudioOutput(thisOutputFile);
                         return !WarningsAsErrors;
                     }
                 }
@@ -270,14 +276,6 @@ namespace GendarmeMsBuild
                 Log.LogError(subcategory, errorCode, helpKeyword, file, lineNumber, columnNumber, endLineNumber, endColumnNumber, message, messageArgs);
             else
                 Log.LogWarning(subcategory, errorCode, helpKeyword, file, lineNumber, columnNumber, endLineNumber, endColumnNumber, message, messageArgs);
-        }
-
-        private void LogDefect(string message)
-        {
-            if (WarningsAsErrors)
-                Log.LogError(message);
-            else
-                Log.LogWarning(message);
         }
 
         static string ProgramFilesx86()
