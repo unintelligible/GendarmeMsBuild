@@ -51,10 +51,16 @@ namespace GendarmeMsBuild
         /// The confidence level defects are filtered by. Maps to --confidence [all | low[+] | normal[+|-] | high[+|-] | total[-]] (optional)
         /// </summary>
         public string Confidence { get; set; }
+
+        private int? limit = null;
         /// <summary>
         /// Limit the amount of defects found. Maps to --limit [value] (optional)
         /// </summary>
-        public int? Limit { get; set; }
+        public int Limit 
+        {
+                get { return limit.HasValue ? limit.Value : -1; }
+                set { limit = value >= 0 ? new int?(value) : null; }
+        }
         /// <summary>
         /// The path to save Gendarme's output XML (optional)
         /// </summary>
@@ -62,11 +68,11 @@ namespace GendarmeMsBuild
         /// <summary>
         /// Output minimal info. Maps to --quiet. Also causes the MSBuild task to output no info (optional). Ignored when Visual Studio integration is enabled.
         /// </summary>
-        public bool? Quiet { get; set; }
+        public bool Quiet { get; set; }
         /// <summary>
         /// Output verbose info. Maps to --verbose (optional). Ignored when Visual Studio integration is enabled.
         /// </summary>
-        public bool? Verbose { get; set; }
+        public bool Verbose { get; set; }
         /// <summary>
         /// Whether or not to fail the build if defects are found. Defaults to false. Useful when only the 
         /// output XML is required. Ignored when Visual Studio integration is enabled.
@@ -88,6 +94,11 @@ namespace GendarmeMsBuild
         /// Whether or not to format the output in a format Visual Studio can understand. Defaults to false (optional)
         /// </summary>
         public bool IntegrateWithVisualStudio { get; set; }
+
+        /// <summary>
+        /// Whether to display gendarme defects in msbuild output.
+        /// </summary>
+        public bool Silent { get; set; }
         #endregion
 
         /// <summary>
@@ -147,7 +158,8 @@ namespace GendarmeMsBuild
                         if (!IntegrateWithVisualStudio && !string.IsNullOrEmpty(stdOut))
                             Log.LogMessage(stdOut);
 
-                        CreateVisualStudioOutput(thisOutputFile);
+                        if (!Silent)
+                            CreateVisualStudioOutput(thisOutputFile);
                         return !WarningsAsErrors;
                     }
                 }
@@ -177,11 +189,11 @@ namespace GendarmeMsBuild
                 sb.Append(" --confidence ").Append('"').Append(Confidence).Append('"');
             if (GendarmeIgnoreFilename != null)
                 sb.Append(" --ignore \"").Append(GendarmeIgnoreFilename).Append('"');
-            if (Limit.HasValue)
-                sb.Append(" --limit ").Append(Limit.Value.ToString());
-            if (Quiet.HasValue && Quiet.Value)
+            if (limit.HasValue)
+                sb.Append(" --limit ").Append(limit.Value.ToString());
+            if (Quiet)
                 sb.Append(" --quiet");
-            else if (Verbose.HasValue && Verbose.Value)
+            if (Verbose)
                 sb.Append(" --verbose");
             sb.Append(" --xml \"").Append(thisOutputFile).Append('"');
             foreach (var assembly in Assemblies)
@@ -199,11 +211,6 @@ namespace GendarmeMsBuild
             if (!string.IsNullOrEmpty(GendarmeIgnoreFilename) && !File.Exists(GendarmeIgnoreFilename))
             {
                 Log.LogError("Couldn't find the Gendarme ignore file at " + GendarmeExeFilename);
-                return false;
-            }
-            if (Assemblies.Length == 0 || !Assemblies.Any(ti => ti.ItemSpec != null && ti.ItemSpec.ToLower().EndsWith(".dll")))
-            {
-                Log.LogError("No .dll files found to run Gendarme against in " + Assemblies);
                 return false;
             }
             return true;
@@ -252,7 +259,7 @@ namespace GendarmeMsBuild
         /// <param name="message"></param>
         private void MaybeLogMessage(string message)
         {
-            if (!IntegrateWithVisualStudio && (!Quiet.HasValue || !Quiet.Value))
+            if (!IntegrateWithVisualStudio && !Quiet)
                 Log.LogMessage(message);
         }
 
@@ -263,14 +270,6 @@ namespace GendarmeMsBuild
                 Log.LogError(subcategory, errorCode, helpKeyword, file, lineNumber, columnNumber, endLineNumber, endColumnNumber, message, messageArgs);
             else
                 Log.LogWarning(subcategory, errorCode, helpKeyword, file, lineNumber, columnNumber, endLineNumber, endColumnNumber, message, messageArgs);
-        }
-
-        private void LogDefect(string message)
-        {
-            if (WarningsAsErrors)
-                Log.LogError(message);
-            else
-                Log.LogWarning(message);
         }
 
         static string ProgramFilesx86()
