@@ -7,6 +7,7 @@ using System.Xml.Linq;
 using System.Diagnostics;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
+using System.Collections.Generic;
 
 namespace GendarmeMsBuild
 {
@@ -221,16 +222,25 @@ namespace GendarmeMsBuild
         {
             var xdoc = XDocument.Load(outputFile);
             var q = from defect in xdoc.Root.Descendants("defect")
-                    let rule = defect.Parent.Parent
-                    select new
+                    let rule = defect.Parent.Parent                    
+                    group defect by new 
+                    { 
+                        RuleName = rule.Attribute("Name").Value,
+                        //Uri = rule.Attribute("Uri").Value, //.Substring(rule.Attribute("Uri").Value.LastIndexOf('/') + 1).Replace('#', '.'),
+                        Problem = rule.Element("problem").Value,
+                        Solution = rule.Element("solution").Value,                        
+                        Target = rule.Element("target").Attribute("Name").Value,
+                        Source = LineRegex.IsMatch(defect.Attribute("Source").Value) ? defect.Attribute("Source").Value : null,
+                    } into grouping
+                    select new 
                        {
-                           Description = defect.Value,
-                           RuleName = rule.Attribute("Name").Value,
+                           Description = string.Join(Environment.NewLine, grouping.Select(d => d.Value).OrderBy(s => s).Distinct().ToArray()),
+                           RuleName = grouping.Key.RuleName,
                            //Uri = rule.Attribute("Uri").Value, //.Substring(rule.Attribute("Uri").Value.LastIndexOf('/') + 1).Replace('#', '.'),
-                           Problem = rule.Element("problem").Value,
-                           Solution = rule.Element("solution").Value,
-                           Source = LineRegex.IsMatch(defect.Attribute("Source").Value) ? defect.Attribute("Source").Value : null,
-                           Target = rule.Element("target").Attribute("Name").Value
+                           Problem = grouping.Key.Problem,
+                           Solution = grouping.Key.Solution,
+                           Source = grouping.Key.Source,
+                           Target = grouping.Key.Target
                        };
             foreach (var defect in q)
             {
