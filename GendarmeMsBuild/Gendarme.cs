@@ -214,6 +214,11 @@ namespace GendarmeMsBuild
                 Log.LogError("Couldn't find the Gendarme ignore file at " + GendarmeExeFilename);
                 return false;
             }
+           if (!Assemblies.Any(ti => ti.ItemSpec != null && (ti.ItemSpec.ToLower().EndsWith(".dll") || ti.ItemSpec.ToLower().EndsWith(".exe") || Directory.Exists(Assemblies[0].ItemSpec))))
+           {
+               Log.LogError("No .dll or .exe files or directories found to run Gendarme against in " + Assemblies);
+               return false;
+           }
             return true;
         }
 
@@ -229,7 +234,8 @@ namespace GendarmeMsBuild
                            Problem = rule.Element("problem").Value,
                            Solution = rule.Element("solution").Value,
                            Source = LineRegex.IsMatch(defect.Attribute("Source").Value) ? defect.Attribute("Source").Value : null,
-                           Target = rule.Element("target").Attribute("Name").Value
+                           Target = rule.Element("target").Attribute("Name").Value,
+                           Description = defect.Value
                        };
             foreach (var defect in q)
             {
