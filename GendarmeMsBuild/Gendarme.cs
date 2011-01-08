@@ -228,13 +228,14 @@ namespace GendarmeMsBuild
             var xdoc = XDocument.Load(outputFile);
             var q = from defect in xdoc.Root.Descendants("defect")
                     let rule = defect.Parent.Parent
+                    let target = defect.Parent
                     select new
                        {
                            RuleName = rule.Attribute("Uri").Value.Substring(rule.Attribute("Uri").Value.LastIndexOf('/') + 1).Replace('#', '.'),
                            Problem = rule.Element("problem").Value,
                            Solution = rule.Element("solution").Value,
                            Source = LineRegex.IsMatch(defect.Attribute("Source").Value) ? defect.Attribute("Source").Value : null,
-                           Target = rule.Element("target").Attribute("Name").Value,
+                           Target = target.Attribute("Name").Value,
                            Description = defect.Value
                        };
             foreach (var defect in q)
