@@ -214,11 +214,6 @@ namespace GendarmeMsBuild
                 Log.LogError("Couldn't find the Gendarme ignore file at " + GendarmeExeFilename);
                 return false;
             }
-           if (!Assemblies.Any(ti => ti.ItemSpec != null && (ti.ItemSpec.ToLower().EndsWith(".dll") || ti.ItemSpec.ToLower().EndsWith(".exe") || Directory.Exists(Assemblies[0].ItemSpec))))
-           {
-               Log.LogError("No .dll or .exe files or directories found to run Gendarme against in " + Assemblies);
-               return false;
-           }
             return true;
         }
 
