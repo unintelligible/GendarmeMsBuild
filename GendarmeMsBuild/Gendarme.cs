@@ -7,13 +7,14 @@ using System.Xml.Linq;
 using System.Diagnostics;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
+using System.Collections.Generic;
 
 namespace GendarmeMsBuild
 {
     public class Gendarme : Task
     {
         private string _gendarmeExeFilename = Path.Combine(Path.Combine(ProgramFilesx86(), "Gendarme"), "gendarme.exe");
-        private static readonly Regex LineRegex = new Regex("\\(≈\\d+\\)");
+        private static readonly Regex LineRegex = new Regex(@"(?<file>.*)\(≈?((?<line>\d+)|unavailable)(,(?<column>\d+))?\)", RegexOptions.Compiled);
 
         #region Task Properties
         /// <summary>
@@ -144,7 +145,7 @@ namespace GendarmeMsBuild
                 proc.WaitForExit();
                 var exitCode = proc.ExitCode;
                 sw.Stop();
-                MaybeLogMessage("GendarmeMsBuild - finished running Gendarme in " + sw.ElapsedMilliseconds + "ms");
+                MaybeLogMessage(String.Format("GendarmeMsBuild - finished running Gendarme in {0}ms", sw.ElapsedMilliseconds));
                 if (exitCode != 0)
                 {
                     if (stdErr.Length > 0)
@@ -168,10 +169,10 @@ namespace GendarmeMsBuild
                 return true;
             }
             finally
-            {
+            {                
                 if (isUsingTempFile)
                     try { File.Delete(thisOutputFile); }
-                    catch { /* do nothing */}
+                    catch { /* do nothing */}               
             }
         }
 
@@ -213,29 +214,16 @@ namespace GendarmeMsBuild
                 Log.LogError("Couldn't find the Gendarme ignore file at " + GendarmeExeFilename);
                 return false;
             }
-            if (Assemblies.Length == 0 || !Assemblies.Any(ti => ti.ItemSpec != null && ti.ItemSpec.ToLower().EndsWith(".dll")))
-            {
-                Log.LogError("No .dll files found to run Gendarme against in " + Assemblies);
-                return false;
-            }
             return true;
         }
 
-        class GendarmeDefect
-        {
-            public string RuleName;
-            public string Problem;
-            public string Solution;
-            public string Source;
-            public string Target;
-        }
 
         private void CreateVisualStudioOutput(string outputFile)
         {
             var xdoc = XDocument.Load(outputFile);
             var q = from defect in xdoc.Root.Descendants("defect")
                     let rule = defect.Parent.Parent
-                    select new GendarmeDefect
+                    select new
                        {
                            RuleName = rule.Attribute("Uri").Value.Substring(rule.Attribute("Uri").Value.LastIndexOf('/') + 1).Replace('#', '.'),
                            Problem = rule.Element("problem").Value,
@@ -247,16 +235,21 @@ namespace GendarmeMsBuild
             {
                 if (defect.Source != null)
                 {
-                    var match = LineRegex.Match(defect.Source);
-                    var lineNumber = int.Parse(match.Value.Substring(2, match.Value.Length - 3));
-                    var sourceFile = defect.Source.Substring(0, defect.Source.IndexOf(match.Value));
-                    LogDefect("[gendarme]", defect.RuleName, null, sourceFile, lineNumber, 1, 0, 0, defect.RuleName + ": " + defect.Problem);
+                    var groups = LineRegex.Match(defect.Source).Groups;
+                    int line = SafeConvert(groups["line"].Value), column = SafeConvert(groups["column"].Value);
+                    LogDefect("[gendarme]", defect.RuleName, null, groups["file"].Value, line, column, line, column, String.Format("{0}: {1}{2}{3}", defect.RuleName, defect.Problem, Environment.NewLine, defect.Description));
                 }
                 else
                 {
-                    LogDefect("[gendarme]", defect.RuleName, null, null, 0, 0, 0, 0, defect.RuleName + ": " + defect.Target + ": " + defect.Problem);
+                    LogDefect("[gendarme]", defect.RuleName, null, null, 0, 0, 0, 0, String.Format("{0}: {1}: {2}{3}{4}", defect.RuleName, defect.Target, defect.Problem, Environment.NewLine, defect.Description));
                 }
             }
+        }
+
+        private static int SafeConvert(string number)
+        {
+            try { return Convert.ToInt32(number); }
+            catch { return 0; }            
         }
 
         /// <summary>
@@ -291,4 +284,3 @@ namespace GendarmeMsBuild
         #endregion
     }
 }
-    
