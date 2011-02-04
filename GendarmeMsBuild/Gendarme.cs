@@ -8,6 +8,7 @@ using System.Diagnostics;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 using System.Collections.Generic;
+using System.Xml;
 
 namespace GendarmeMsBuild
 {
@@ -57,10 +58,10 @@ namespace GendarmeMsBuild
         /// <summary>
         /// Limit the amount of defects found. Maps to --limit [value] (optional)
         /// </summary>
-        public int Limit 
+        public int Limit
         {
-                get { return limit.HasValue ? limit.Value : -1; }
-                set { limit = value >= 0 ? new int?(value) : null; }
+            get { return limit.HasValue ? limit.Value : -1; }
+            set { limit = value >= 0 ? new int?(value) : null; }
         }
         /// <summary>
         /// The path to save Gendarme's output XML (optional)
@@ -111,7 +112,7 @@ namespace GendarmeMsBuild
             if (!VerifyProperties()) return false;
 
             var thisOutputFile = OutputXmlFilename;
-            var isUsingTempFile = false;
+            bool isUsingTempFile = false, keepTempFile = false;
             if (string.IsNullOrEmpty(thisOutputFile))
             {
                 thisOutputFile = Path.GetTempFileName();
@@ -119,11 +120,12 @@ namespace GendarmeMsBuild
             }
             else
             {
-                if(File.Exists(thisOutputFile))
+                if (File.Exists(thisOutputFile))
                     try
                     {
                         File.Delete(thisOutputFile);
-                    } catch(Exception e)
+                    }
+                    catch (Exception e)
                     {
                         Log.LogErrorFromException(new Exception("Couldn't recreate output file " + thisOutputFile, e));
                         return false;
@@ -160,7 +162,15 @@ namespace GendarmeMsBuild
                             Log.LogMessage(stdOut);
 
                         if (!Silent)
-                            CreateVisualStudioOutput(thisOutputFile);
+                        {
+                            try { CreateVisualStudioOutput(thisOutputFile); }
+                            catch (Exception ex)
+                            {
+                                keepTempFile = true;
+                                Log.LogError("[gendarmeMsBuild]", "ErrorProcessingGendarmeInput", null, thisOutputFile, 1, 1, 0, 0,
+                                    String.Format("A call to Gendarme with command line arguments {0} failed{1}Delete temporary file when done examining.  Error message:{1}{2}", commandLineArguments, Environment.NewLine, ex));
+                            }
+                        }
                         return !WarningsAsErrors;
                     }
                 }
@@ -169,10 +179,10 @@ namespace GendarmeMsBuild
                 return true;
             }
             finally
-            {                
-                if (isUsingTempFile)
+            {
+                if (isUsingTempFile && !keepTempFile)
                     try { File.Delete(thisOutputFile); }
-                    catch { /* do nothing */}               
+                    catch { /* do nothing */}
             }
         }
 
@@ -221,18 +231,20 @@ namespace GendarmeMsBuild
         private void CreateVisualStudioOutput(string outputFile)
         {
             var xdoc = XDocument.Load(outputFile);
+
             var q = from defect in xdoc.Root.Descendants("defect")
-                    let rule = defect.Parent.Parent                    
-                    group defect by new 
-                    { 
+                    let rule = defect.Parent.Parent
+                    let target = defect.Parent
+                    group defect by new
+                    {
                         RuleName = rule.Attribute("Name").Value,
                         //Uri = rule.Attribute("Uri").Value, //.Substring(rule.Attribute("Uri").Value.LastIndexOf('/') + 1).Replace('#', '.'),
                         Problem = rule.Element("problem").Value,
-                        Solution = rule.Element("solution").Value,                        
-                        Target = rule.Element("target").Attribute("Name").Value,
+                        Solution = rule.Element("solution").Value,
+                        Target = target.Attribute("Name").Value,
                         Source = LineRegex.IsMatch(defect.Attribute("Source").Value) ? defect.Attribute("Source").Value : null,
                     } into grouping
-                    select new 
+                    select new
                        {
                            Description = string.Join(Environment.NewLine, grouping.Select(d => d.Value).OrderBy(s => s).Distinct().ToArray()),
                            RuleName = grouping.Key.RuleName,
@@ -260,7 +272,7 @@ namespace GendarmeMsBuild
         private static int SafeConvert(string number)
         {
             try { return Convert.ToInt32(number); }
-            catch { return 0; }            
+            catch { return 0; }
         }
 
         /// <summary>
