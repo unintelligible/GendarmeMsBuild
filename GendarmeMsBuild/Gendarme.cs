@@ -281,7 +281,7 @@ namespace GendarmeMsBuild
         /// <param name="message"></param>
         private void MaybeLogMessage(string message)
         {
-            if (!IntegrateWithVisualStudio && !Quiet)
+            if (Verbose || (!IntegrateWithVisualStudio && !Quiet))
                 Log.LogMessage(message);
         }
 
