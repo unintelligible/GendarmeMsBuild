@@ -129,6 +129,7 @@ namespace GendarmeMsBuild
         {
             if (!VerifyProperties()) return false;
 
+            string commandLineArguments = "*error*";
             var thisOutputFile = OutputXmlFilename;
             bool isUsingTempFile = false, keepTempFile = false;
             if (string.IsNullOrEmpty(thisOutputFile) || AppendToOutput)
@@ -153,7 +154,7 @@ namespace GendarmeMsBuild
 
             try
             {
-                var commandLineArguments = BuildCommandLineArguments(thisOutputFile);
+                commandLineArguments = BuildCommandLineArguments(thisOutputFile);
 
                 MaybeLogMessage("GendarmeMsBuild - command line arguments to Gendarme: " + commandLineArguments);
                 var processInfo = new ProcessStartInfo(_gendarmeExeFilename, commandLineArguments) { CreateNoWindow = true, UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true };
@@ -166,48 +167,52 @@ namespace GendarmeMsBuild
                 var exitCode = proc.ExitCode;
                 sw.Stop();
                 MaybeLogMessage(String.Format("GendarmeMsBuild - finished running Gendarme in {0}ms", sw.ElapsedMilliseconds));
-                if (exitCode != 0)
-                {
-                    if (stdErr.Length > 0)
-                    {
-                        // problem with the call out to Gendarme
-                        Log.LogError(stdErr);
-                        return false;
-                    }
-                    else
-                    {
-                        if (!IntegrateWithVisualStudio && !string.IsNullOrEmpty(stdOut))
-                            Log.LogMessage(stdOut);
 
-                        if (!Silent)
-                        {
-                            try { CreateVisualStudioOutput(thisOutputFile); }
-                            catch (Exception ex)
-                            {
-                                keepTempFile = true;
-                                Log.LogError("[gendarmeMsBuild]", "ErrorProcessingGendarmeInput", null, thisOutputFile, 1, 1, 0, 0,
-                                    String.Format("A call to Gendarme with command line arguments {0} failed{1}Delete temporary file when done examining.  Error message:{1}{2}", commandLineArguments, Environment.NewLine, ex));
-                            }
-                        }
-                        return !WarningsAsErrors;
-                    }
+                //try to dump to visual studio, in the event there's some actual usable output
+                if (IntegrateWithVisualStudio && !Silent)
+                {
+                    CreateVisualStudioOutput(thisOutputFile);
                 }
-                if (!IntegrateWithVisualStudio && !string.IsNullOrEmpty(stdOut))
-                    Log.LogMessage(stdOut);
-                return true;
-            }
-            finally
-            {
-                if (AppendToOutput)
+
+                //now try to append to an existing violations xml file (if applicable)
+                if (AppendToOutput && !string.IsNullOrEmpty(OutputXmlFilename))
                 {
                     MungeViolations(thisOutputFile, OutputXmlFilename);
                 }
-                
+
+                //and furthermore, condense the violations if specified
                 if (CondenseViolations)
                 {
-                    CondenseViolationsFile(AppendToOutput ? OutputXmlFilename : thisOutputFile);
+                    CondenseViolationsFile(AppendToOutput && !string.IsNullOrEmpty(OutputXmlFilename) ? OutputXmlFilename : thisOutputFile);
                 }
 
+                // problem with the call out to Gendarme, so fail the task from inside msbuild
+                if (exitCode != 0 && stdErr.Length > 0)
+                {
+                    Log.LogError(stdErr);
+                    return false;
+                }
+
+                //dump all of our gendarme output to Log as a message
+                if (!IntegrateWithVisualStudio && !string.IsNullOrEmpty(stdOut))
+                {
+                    Log.LogMessage(stdOut);
+                }
+
+                //TODO: need to kill the build if there were any failures via !WarningsAsErrors
+                return true;
+            }
+            //could be a problem parsing VS input for instance
+            catch (Exception ex)
+            {
+                keepTempFile = true;
+                Log.LogError("[gendarmeMsBuild]", "Unexpected Error", null, thisOutputFile, 1, 1, 0, 0,
+                    String.Format("A call to Gendarme with command line arguments {0} failed unexpectedly{1}Delete temporary file when done examining.  Error message:{1}{2}", commandLineArguments, Environment.NewLine, ex));
+
+                return false;
+            }
+            finally
+            {               
                 if (isUsingTempFile && !keepTempFile)
                     try { File.Delete(thisOutputFile); }
                     catch { /* do nothing */}
@@ -277,7 +282,7 @@ namespace GendarmeMsBuild
                 var outputRule = outputResults.Elements("rule")
                     .FirstOrDefault(foundRule => foundRule.Attributes("Name")
                         .Any(attrib => attrib.Value == ruleName));
-                
+
                 //if not, keep a running list of rules to add at the end
                 if (null == outputRule)
                 {
