@@ -1,14 +1,12 @@
 ﻿using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
-using System.Diagnostics;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
-using System.Collections.Generic;
-using System.Xml;
 
 namespace GendarmeMsBuild
 {
@@ -101,6 +99,26 @@ namespace GendarmeMsBuild
         /// Whether to display gendarme defects in msbuild output.
         /// </summary>
         public bool Silent { get; set; }
+
+
+        /// <summary>   
+        /// Gets or sets a value indicating whether we should append to an existing violations output file should one exist.  
+        /// </summary>
+        /// <value> true if append, false if not. </value>
+        public bool AppendToOutput { get; set; }
+
+        private bool _CondenseViolations = true;
+        /// <summary>   
+        /// Gets or sets a value indicating whether or not we should condense duplicate violations for the sake of brevity.  In this context,
+        /// duplicate violations are thos that appear multiple time in the resultant Xml violations list, with the only difference being the
+        /// description message. For instance, sometimes multiple violations appear for AvoidCodeDuplicatedInSameClassRule . 
+        /// </summary>
+        /// <value> true if condense [default], false if not. </value>
+        public bool CondenseViolations
+        {
+            get { return _CondenseViolations; }
+            set { _CondenseViolations = value; }
+        }
         #endregion
 
         /// <summary>
@@ -113,7 +131,7 @@ namespace GendarmeMsBuild
 
             var thisOutputFile = OutputXmlFilename;
             bool isUsingTempFile = false, keepTempFile = false;
-            if (string.IsNullOrEmpty(thisOutputFile))
+            if (string.IsNullOrEmpty(thisOutputFile) || AppendToOutput)
             {
                 thisOutputFile = Path.GetTempFileName();
                 isUsingTempFile = true;
@@ -180,6 +198,16 @@ namespace GendarmeMsBuild
             }
             finally
             {
+                if (AppendToOutput)
+                {
+                    MungeViolations(thisOutputFile, OutputXmlFilename);
+                }
+                
+                if (CondenseViolations)
+                {
+                    CondenseViolationsFile(AppendToOutput ? OutputXmlFilename : thisOutputFile);
+                }
+
                 if (isUsingTempFile && !keepTempFile)
                     try { File.Delete(thisOutputFile); }
                     catch { /* do nothing */}
@@ -227,33 +255,150 @@ namespace GendarmeMsBuild
             return true;
         }
 
-
-        private void CreateVisualStudioOutput(string outputFile)
+        private static void MungeViolations(string inputFilePath, string outputFilePath)
         {
-            var xdoc = XDocument.Load(outputFile);
+            if (!File.Exists(outputFilePath))
+            {
+                File.Copy(inputFilePath, outputFilePath);
+                return;
+            }
 
-            var q = from defect in xdoc.Root.Descendants("defect")
+            XDocument outputDocument = XDocument.Load(outputFilePath),
+                inputDocument = XDocument.Load(inputFilePath);
+
+            MergeNodes(outputDocument, inputDocument, "files", "file", node => new { Name = node.Attribute("Name"), Path = node.Value });
+            MergeNodes(outputDocument, inputDocument, "rules", "rule", node => new { Name = node.Attribute("Name"), FullName = node.Value });
+
+            var outputResults = outputDocument.Root.Element("results");
+            foreach (var rule in inputDocument.Root.Element("results").Elements("rule"))
+            {
+                string ruleName = rule.Attribute("Name").Value;
+                //determine if this rule exists in outputDocument
+                var outputRule = outputResults.Elements("rule")
+                    .FirstOrDefault(foundRule => foundRule.Attributes("Name")
+                        .Any(attrib => attrib.Value == ruleName));
+                
+                //if not, keep a running list of rules to add at the end
+                if (null == outputRule)
+                {
+                    outputResults.Add(rule);
+                    continue;
+                }
+
+                //otherwise, copy in all of the target nodes
+                foreach (var target in rule.Elements("target"))
+                {
+                    outputRule.Add(target);
+                }
+            }
+
+            outputDocument.Save(outputFilePath);
+        }
+
+        private static void MergeNodes<T>(XDocument outputDocument, XDocument inputDocument, string parentNodeName, string childNodeName, Func<XElement, T> grouper)
+        {
+            var parentNode = outputDocument.Root.Element(parentNodeName);
+            //merge together list of distinct nodes
+            var filteredNodes = parentNode.Descendants(childNodeName)
+                .Union(inputDocument.Root.Element(parentNodeName).Descendants(childNodeName))
+                .GroupBy(node => grouper(node))
+                .Select(grouping => grouping.First());
+
+            parentNode.RemoveNodes();
+            parentNode.Add(filteredNodes);
+        }
+        
+        private static void CondenseViolationsFile(string outputFileName)
+        {
+            var outputDocument = XDocument.Load(outputFileName);
+
+            //filter all the 'defect' nodes, mashing them up where the rule Name, problem, solution and Target Name, and source are the same
+            var ruleGroupedMashedNodes = (from defect in outputDocument.Root.Descendants("defect")
                     let rule = defect.Parent.Parent
                     let target = defect.Parent
                     group defect by new
                     {
                         RuleName = rule.Attribute("Name").Value,
-                        //Uri = rule.Attribute("Uri").Value, //.Substring(rule.Attribute("Uri").Value.LastIndexOf('/') + 1).Replace('#', '.'),
                         Problem = rule.Element("problem").Value,
                         Solution = rule.Element("solution").Value,
                         Target = target.Attribute("Name").Value,
                         Source = LineRegex.IsMatch(defect.Attribute("Source").Value) ? defect.Attribute("Source").Value : null,
-                    } into grouping
+                    } into distinctGrouping
+                    //list of 
                     select new
-                       {
-                           Description = string.Join(Environment.NewLine, grouping.Select(d => d.Value).OrderBy(s => s).Distinct().ToArray()),
-                           RuleName = grouping.Key.RuleName,
-                           //Uri = rule.Attribute("Uri").Value, //.Substring(rule.Attribute("Uri").Value.LastIndexOf('/') + 1).Replace('#', '.'),
-                           Problem = grouping.Key.Problem,
-                           Solution = grouping.Key.Solution,
-                           Source = grouping.Key.Source,
-                           Target = grouping.Key.Target
-                       };
+                    {
+                        Description = string.Join(Environment.NewLine, distinctGrouping.Select(d => d.Value).OrderBy(s => s).Distinct().ToArray()),
+                        FirstMatch = distinctGrouping.First()
+                    })
+                    //group first by 'target'
+                    .GroupBy(node => node.FirstMatch.Parent)
+                    //then by 'rule'
+                    .GroupBy(targetGrouping => targetGrouping.Key.Parent)
+                    //cache these results as stored in the original file
+                    .ToList();
+
+            //cruise through each results/rule
+            foreach (var rule in outputDocument.Descendants("rule").Where(node => node.Parent.Name == "results"))
+            {
+                var nodesToSave = rule.Elements().Where(d => d.Name != "target").ToList();
+                rule.RemoveNodes(); //remove all targets for this rule
+                rule.Add(nodesToSave);
+                //now find the targets applicable to this rule
+                foreach (var targets in ruleGroupedMashedNodes.First(grouping => grouping.Key.Attribute("Name").Value == rule.Attribute("Name").Value))
+                {
+                    var target = targets.Key;
+                    target.RemoveNodes(); //clear out all the defects
+                    //and readd the condensed ones in one by one
+                    foreach (var defect in targets)
+                    {
+                        defect.FirstMatch.Value = defect.Description;
+                        target.Add(defect.FirstMatch);
+                    }
+                    rule.Add(target);
+                }                
+            }
+
+            outputDocument.Save(outputFileName);
+        }
+
+        private void CreateVisualStudioOutput(string outputFile)
+        {
+            var xdoc = XDocument.Load(outputFile);
+
+            var q = CondenseViolations ? 
+                //condensed / grouped violations for a cleaner UI
+                from defect in xdoc.Root.Descendants("defect")
+                let rule = defect.Parent.Parent
+                let target = defect.Parent
+                group defect by new
+                {
+                    RuleName = rule.Attribute("Name").Value,
+                    //Uri = rule.Attribute("Uri").Value, //.Substring(rule.Attribute("Uri").Value.LastIndexOf('/') + 1).Replace('#', '.'),
+                    Problem = rule.Element("problem").Value,
+                    Target = target.Attribute("Name").Value,
+                    Source = LineRegex.IsMatch(defect.Attribute("Source").Value) ? defect.Attribute("Source").Value : null,
+                } into grouping
+                select new
+                {
+                    RuleName = grouping.Key.RuleName,
+                    Problem = grouping.Key.Problem,
+                    Target = grouping.Key.Target,
+                    Source = grouping.Key.Source,                        
+                    Description = string.Join(Environment.NewLine, grouping.Select(d => d.Value).OrderBy(s => s).Distinct().ToArray())
+                } :
+                //more verbose ungrouped violations
+                from defect in xdoc.Root.Descendants("defect")
+                let rule = defect.Parent.Parent
+                let target = defect.Parent
+                select new
+                {
+                    RuleName = rule.Attribute("Name").Value,
+                    Problem = rule.Element("problem").Value,
+                    Target = target.Attribute("Name").Value,
+                    Source = LineRegex.IsMatch(defect.Attribute("Source").Value) ? defect.Attribute("Source").Value : null,
+                    Description = rule.Value
+                };
+
             foreach (var defect in q)
             {
                 if (defect.Source != null)
@@ -288,6 +433,7 @@ namespace GendarmeMsBuild
         private void LogDefect(string subcategory, string errorCode, string helpKeyword, string file, int lineNumber,
                              int columnNumber, int endLineNumber, int endColumnNumber, string message, params string[] messageArgs)
         {
+            //TODO: think about automatically treating severity of a certain level as an error, else a warning
             if (WarningsAsErrors)
                 Log.LogError(subcategory, errorCode, helpKeyword, file, lineNumber, columnNumber, endLineNumber, endColumnNumber, message, messageArgs);
             else
