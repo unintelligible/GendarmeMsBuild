@@ -131,7 +131,7 @@ namespace GendarmeMsBuild
 
             string commandLineArguments = "*error*";
             var thisOutputFile = OutputXmlFilename;
-            bool isUsingTempFile = false, keepTempFile = false;
+            bool isUsingTempFile = false, keepTempFile = false, hasDefects = false;
             if (string.IsNullOrEmpty(thisOutputFile) || AppendToOutput)
             {
                 thisOutputFile = Path.GetTempFileName();
@@ -168,11 +168,8 @@ namespace GendarmeMsBuild
                 sw.Stop();
                 MaybeLogMessage(String.Format("GendarmeMsBuild - finished running Gendarme in {0}ms", sw.ElapsedMilliseconds));
 
-                //try to dump to visual studio, in the event there's some actual usable output
-                if (IntegrateWithVisualStudio && !Silent)
-                {
-                    CreateVisualStudioOutput(thisOutputFile);
-                }
+                //parse the output looking for defects (dumping to the visual studio log if requested)
+                hasDefects = ParseOutput(thisOutputFile, (IntegrateWithVisualStudio && !Silent));
 
                 //now try to append to an existing violations xml file (if applicable)
                 if (AppendToOutput && !string.IsNullOrEmpty(OutputXmlFilename))
@@ -199,7 +196,12 @@ namespace GendarmeMsBuild
                     Log.LogMessage(stdOut);
                 }
 
-                //TODO: need to kill the build if there were any failures via !WarningsAsErrors
+                //fail our task if the output had defected and we treat WarningsAsErrors
+                if (WarningsAsErrors && hasDefects)
+                {
+                    return false;
+                }
+
                 return true;
             }
             //could be a problem parsing VS input for instance
@@ -212,7 +214,7 @@ namespace GendarmeMsBuild
                 return false;
             }
             finally
-            {               
+            {
                 if (isUsingTempFile && !keepTempFile)
                     try { File.Delete(thisOutputFile); }
                     catch { /* do nothing */}
@@ -283,17 +285,15 @@ namespace GendarmeMsBuild
                     .FirstOrDefault(foundRule => foundRule.Attributes("Name")
                         .Any(attrib => attrib.Value == ruleName));
 
-                //if not, keep a running list of rules to add at the end
+                //if not, add it
                 if (null == outputRule)
                 {
                     outputResults.Add(rule);
-                    continue;
                 }
-
-                //otherwise, copy in all of the target nodes
-                foreach (var target in rule.Elements("target"))
+                else
                 {
-                    outputRule.Add(target);
+                    //otherwise, copy in all of the target nodes
+                    outputRule.Add(rule.Elements("target"));
                 }
             }
 
@@ -366,11 +366,11 @@ namespace GendarmeMsBuild
             outputDocument.Save(outputFileName);
         }
 
-        private void CreateVisualStudioOutput(string outputFile)
+        private bool ParseOutput(string outputFile, bool writeDefectsToLog)
         {
             var xdoc = XDocument.Load(outputFile);
 
-            var q = CondenseViolations ? 
+            var q = (CondenseViolations ?
                 //condensed / grouped violations for a cleaner UI
                 from defect in xdoc.Root.Descendants("defect")
                 let rule = defect.Parent.Parent
@@ -388,7 +388,7 @@ namespace GendarmeMsBuild
                     RuleName = grouping.Key.RuleName,
                     Problem = grouping.Key.Problem,
                     Target = grouping.Key.Target,
-                    Source = grouping.Key.Source,                        
+                    Source = grouping.Key.Source,
                     Description = string.Join(Environment.NewLine, grouping.Select(d => d.Value).OrderBy(s => s).Distinct().ToArray())
                 } :
                 //more verbose ungrouped violations
@@ -402,7 +402,8 @@ namespace GendarmeMsBuild
                     Target = target.Attribute("Name").Value,
                     Source = LineRegex.IsMatch(defect.Attribute("Source").Value) ? defect.Attribute("Source").Value : null,
                     Description = rule.Value
-                };
+                }).ToList();
+
 
             foreach (var defect in q)
             {
@@ -417,6 +418,8 @@ namespace GendarmeMsBuild
                     LogDefect("[gendarme]", defect.RuleName, null, null, 0, 0, 0, 0, String.Format("{0}: {1}: {2}{3}{4}", defect.RuleName, defect.Target, defect.Problem, Environment.NewLine, defect.Description));
                 }
             }
+
+            return q.Count > 0;
         }
 
         private static int SafeConvert(string number)
