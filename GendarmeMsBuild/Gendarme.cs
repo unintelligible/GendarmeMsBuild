@@ -273,8 +273,8 @@ namespace GendarmeMsBuild
             XDocument outputDocument = XDocument.Load(outputFilePath),
                 inputDocument = XDocument.Load(inputFilePath);
 
-            MergeNodes(outputDocument, inputDocument, "files", "file", node => new { Name = node.Attribute("Name"), Path = node.Value });
-            MergeNodes(outputDocument, inputDocument, "rules", "rule", node => new { Name = node.Attribute("Name"), FullName = node.Value });
+            MergeNodes(outputDocument, inputDocument, "files", "file", file => new { Path = file.Value });
+            MergeNodes(outputDocument, inputDocument, "rules", "rule", rule => new { FullName = rule.Value });
 
             var outputResults = outputDocument.Root.Element("results");
             foreach (var rule in inputDocument.Root.Element("results").Elements("rule"))
@@ -309,8 +309,7 @@ namespace GendarmeMsBuild
                 .GroupBy(node => grouper(node))
                 .Select(grouping => grouping.First());
 
-            parentNode.RemoveNodes();
-            parentNode.Add(filteredNodes);
+            parentNode.ReplaceNodes(filteredNodes);
         }
         
         private static void CondenseViolationsFile(string outputFileName)
