@@ -51,6 +51,12 @@
     <Compile Include="Gendarme.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="NuGet\NuGet.exe" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="GendarmeMsBuild.nuspec" />
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
